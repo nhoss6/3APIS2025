@@ -741,3 +741,408 @@ curl -X DELETE http://localhost:3000/products/<id>
 
 ---
 
+Voici un **tuto pas à pas, prêt à copier dans ton README**, pour guider un débutant sur les **tests d’une API Express + MongoDB** et la **validation des données**.
+Tout est expliqué, avec fichiers, commandes et exemples.
+
+---
+
+# Tests et validation de l’API (Express + MongoDB)
+
+Ce guide montre comment :
+
+1. Installer et configurer les outils de test
+2. Écrire des tests unitaires, modèle Mongoose, et d’intégration API
+3. Mesurer la couverture avec `c8`
+4. Valider les données entrantes (Joi) et tester les erreurs
+
+> Règle clé : *Ne jamais faire confiance aux données externes.*
+> Toute requête doit être validée avant traitement ou insertion en base.
+
+---
+
+## 0) Prérequis
+
+* Projet Express fonctionnel, connecté à MongoDB Atlas
+* Node.js 18+
+* `package.json` en ES Modules (contient `"type": "module"`)
+
+---
+
+## 1) Installer les dépendances de test et de validation
+
+```bash
+npm i -D mocha chai supertest c8
+npm i joi
+```
+
+* **mocha** : framework de test
+* **chai** : assertions
+* **supertest** : tests d’intégration HTTP sur `app`
+* **c8** : couverture ESM (remplace nyc)
+* **joi** : validation des entrées
+
+---
+
+## 2) Configurer les scripts npm
+
+Dans `package.json` :
+
+```json
+{
+  "type": "module",
+  "scripts": {
+    "start": "node ./bin/www",
+    "test": "mocha --timeout 5000",
+    "coverage": "c8 --reporter=text --reporter=html npm test"
+  },
+  "c8": {
+    "exclude": ["test/**", "bin/**", "db.js", "app.js", "node_modules/**"],
+    "include": ["models/**", "routes/**", "utils/**"],
+    "reporter": ["text", "html"]
+  }
+}
+```
+
+* `npm test` lance tous les tests
+* `npm run coverage` génère un rapport texte + HTML (`coverage/index.html`)
+* La config `c8` ignore les fichiers non pertinents (tests, bootstrap, etc.)
+
+---
+
+## 3) Arborescence conseillée
+
+```
+myapp/
+  models/
+    Product.js
+  routes/
+    products.js
+  utils/
+    productUtils.js
+  validators/
+    productValidator.js
+  test/
+    product.test.js           ← test unitaire (utils)
+    model.product.test.js     ← test modèle Mongoose
+    api.products.test.js      ← test intégration API
+  app.js
+  db.js
+  .env
+```
+
+---
+
+## 4) Test unitaire (fonction utilitaire)
+
+### 4.1 Code à tester : `utils/productUtils.js`
+
+```js
+// utils/productUtils.js
+export function calculateDiscountedPrice(price, discount) {
+  if (typeof price !== "number" || typeof discount !== "number") {
+    throw new Error("Les valeurs doivent être numériques");
+  }
+  if (price < 0 || discount < 0) {
+    throw new Error("Les valeurs ne peuvent pas être négatives");
+  }
+  return price - (price * discount) / 100;
+}
+```
+
+### 4.2 Test : `test/product.test.js`
+
+```js
+// test/product.test.js
+import { expect } from "chai";
+import { calculateDiscountedPrice } from "../utils/productUtils.js";
+
+describe("calculateDiscountedPrice", function () {
+  it("calcule correctement une réduction de 20%", function () {
+    const result = calculateDiscountedPrice(100, 20);
+    expect(result).to.equal(80);
+  });
+
+  it("lève une erreur si les valeurs ne sont pas numériques", function () {
+    expect(() => calculateDiscountedPrice("100", 20)).to.throw();
+  });
+});
+```
+
+**Pourquoi** : test rapide d’une petite logique métier, isolée de la base de données.
+
+---
+
+## 5) Validation des données côté API (Joi)
+
+### 5.1 Schéma de validation : `validators/productValidator.js`
+
+```js
+// validators/productValidator.js
+import Joi from "joi";
+
+export const productSchema = Joi.object({
+  name:  Joi.string().min(2).max(50).required(),
+  price: Joi.number().positive().required(),
+  stock: Joi.number().integer().min(0).default(0),
+  tags:  Joi.array().items(Joi.string()).default([])
+});
+```
+
+### 5.2 Application dans la route : `routes/products.js`
+
+> Exemple minimal montrant la validation en `POST` et `PATCH`.
+
+```js
+// routes/products.js
+import express from "express";
+import Product from "../models/Product.js";
+import { productSchema } from "../validators/productValidator.js";
+
+const router = express.Router();
+
+// CREATE
+router.post("/", async (req, res) => {
+  try {
+    const { error, value } = productSchema.validate(req.body);
+    if (error) return res.status(400).json({ message: error.details[0].message });
+
+    const created = await Product.create(value);
+    res.status(201).json(created);
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+// READ all
+router.get("/", async (_req, res) => {
+  const list = await Product.find();
+  res.json(list);
+});
+
+// READ one
+router.get("/:id", async (req, res) => {
+  try {
+    const item = await Product.findById(req.params.id);
+    if (!item) return res.status(404).json({ message: "Product not found" });
+    res.json(item);
+  } catch {
+    res.status(400).json({ message: "Invalid ID format" });
+  }
+});
+
+// UPDATE
+router.patch("/:id", async (req, res) => {
+  try {
+    const { error, value } = productSchema.validate(req.body, { allowUnknown: true });
+    if (error) return res.status(400).json({ message: error.details[0].message });
+
+    const updated = await Product.findByIdAndUpdate(req.params.id, value, { new: true });
+    if (!updated) return res.status(404).json({ message: "Product not found" });
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+// DELETE
+router.delete("/:id", async (req, res) => {
+  try {
+    const deleted = await Product.findByIdAndDelete(req.params.id);
+    if (!deleted) return res.status(404).json({ message: "Product not found" });
+    res.json({ message: `Product ${deleted.name} deleted successfully` });
+  } catch {
+    res.status(400).json({ message: "Invalid ID format" });
+  }
+});
+
+export default router;
+```
+
+**Pourquoi** : on bloque tôt les requêtes invalides (400) pour protéger la base et rendre l’API prévisible.
+
+---
+
+## 6) Tester le modèle Mongoose (CRUD)
+
+`test/model.product.test.js` :
+
+```js
+import mongoose from "mongoose";
+import { expect } from "chai";
+import Product from "../models/Product.js";
+
+describe("MongoDB Product model", function () {
+  before(async function () {
+    await mongoose.connect(process.env.MONGODB_URI);
+  });
+
+  beforeEach(async function () {
+    await Product.deleteMany({});
+  });
+
+  after(async function () {
+    await mongoose.connection.close();
+  });
+
+  it("crée et retrouve un produit", async function () {
+    const p = await Product.create({ name: "Mouse", price: 19.9, stock: 30 });
+    const found = await Product.findOne({ name: "Mouse" });
+    expect(found).to.exist;
+    expect(found.price).to.equal(19.9);
+  });
+});
+```
+
+**Pourquoi** : vérifier que le schéma, les contraintes et les opérations MongoDB fonctionnent.
+
+---
+
+## 7) Tests d’intégration API (Supertest)
+
+`test/api.products.test.js` :
+
+```js
+import request from "supertest";
+import { expect } from "chai";
+import mongoose from "mongoose";
+import app from "../app.js";             // importer l'app, pas besoin de lancer bin/www
+import Product from "../models/Product.js";
+
+describe("API /products", function () {
+  before(async function () {
+    await mongoose.connect(process.env.MONGODB_URI);
+  });
+
+  beforeEach(async function () {
+    await Product.deleteMany({});
+  });
+
+  after(async function () {
+    await mongoose.connection.close();
+  });
+
+  it("POST /products - refuse des données invalides", async function () {
+    const res = await request(app)
+      .post("/products")
+      .send({ name: "K" })               // invalide: trop court et pas de price
+      .expect(400);
+    expect(res.body.message).to.include("price");
+  });
+
+  it("POST /products - crée un produit valide", async function () {
+    const res = await request(app)
+      .post("/products")
+      .send({ name: "Monitor", price: 199.9, stock: 50, tags: ["hdmi"] })
+      .expect(201);
+    expect(res.body).to.have.property("_id");
+  });
+
+  it("GET /products - retourne la liste", async function () {
+    await Product.create({ name: "Keyboard", price: 49.9 });
+    const res = await request(app).get("/products").expect(200);
+    expect(res.body).to.be.an("array").that.is.not.empty;
+  });
+
+  it("GET /products/:id - 404 si id inconnu", async function () {
+    const fakeId = new mongoose.Types.ObjectId();
+    const res = await request(app).get(`/products/${fakeId}`).expect(404);
+    expect(res.body.message).to.include("not found");
+  });
+
+  it("PATCH /products/:id - met à jour un produit", async function () {
+    const p = await Product.create({ name: "Headset", price: 79.9 });
+    const res = await request(app)
+      .patch(`/products/${p._id}`)
+      .send({ price: 89.9 })
+      .expect(200);
+    expect(res.body.price).to.equal(89.9);
+  });
+
+  it("DELETE /products/:id - supprime un produit", async function () {
+    const p = await Product.create({ name: "Mouse", price: 29.9 });
+    const res = await request(app).delete(`/products/${p._id}`).expect(200);
+    expect(res.body.message).to.include("deleted");
+  });
+});
+```
+
+**Pourquoi** : on simule de “vraies” requêtes HTTP contre l’application Express (middlewares, routes, validation, base).
+
+---
+
+## 8) Exécuter les tests et la couverture
+
+* Lancer les tests :
+
+```bash
+npm test
+```
+
+* Générer la couverture :
+
+```bash
+npm run coverage
+```
+
+* Ouvrir le rapport HTML :
+
+```bash
+start coverage/index.html
+```
+
+---
+
+## 9) Scénarios à tester (checklist)
+
+* Requête valide complète (201)
+* Requête invalide (400) : champ requis manquant (`price`), types incorrects (`price` string), valeurs interdites (prix négatif)
+* Lecture de liste (200)
+* Lecture par id inexistant (404)
+* Lecture par id au mauvais format (400)
+* Mise à jour partielle valide (200)
+* Mise à jour invalide (400)
+* Suppression d’un id inexistant (404)
+* Suppression valide (200)
+
+---
+
+## 10) Dépannage courant
+
+* `ERR_MODULE_NOT_FOUND` : vérifier le chemin et l’extension `.js` dans les imports ESM.
+* `The requested module 'X' does not provide an export named 'Y'` : ajouter `export` dans le fichier source.
+* Couverture à 0 % avec nyc : passer à `c8` (compatible ESM) et config `c8` dans `package.json`.
+* Tests instables liés à la base : nettoyer la collection avec `deleteMany({})` en `beforeEach`.
+* Ne pas démarrer `bin/www` dans les tests : `supertest` importe `app` directement.
+
+---
+
+## 11) Pourquoi valider côté API
+
+* Protéger la base contre des données incohérentes ou malveillantes
+* Rendre l’API prévisible (erreurs 400 claires)
+* Réduire les bugs “logique” côté client
+* Faciliter la maintenance et les évolutions du schéma
+
+---
+
+## 12) Alternatives à Joi
+
+* **Zod** : syntaxe moderne, très utilisée avec TypeScript
+* **Ajv** : validation JSON Schema, très rapide et standard
+* **Yup** : souvent côté frontend
+
+Le principe reste identique : définir un schéma et valider chaque requête.
+
+---
+
+### Résumé
+
+1. Installer `mocha`, `chai`, `supertest`, `c8`, `joi`
+2. Ajouter les scripts `test` et `coverage`
+3. Écrire un test unitaire (utils)
+4. Écrire des tests de modèle Mongoose
+5. Écrire des tests d’intégration API (Supertest)
+6. Ajouter la validation Joi dans les routes
+7. Couvrir les scénarios valides/invalides
+8. Générer et lire la couverture `c8`
+ 
