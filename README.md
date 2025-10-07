@@ -741,5 +741,3 @@ curl -X DELETE http://localhost:3000/products/<id>
 
 ---
 
-Vous avez maintenant une API Express opérationnelle, connectée à MongoDB Atlas via Mongoose, avec un CRUD complet sur une collection `products`, et vous savez vérifier les données via Compass.
-
