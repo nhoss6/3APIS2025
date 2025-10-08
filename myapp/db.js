@@ -1,22 +1,18 @@
-// myapp/db.js
-const mongoose = require("mongoose");
-require("dotenv").config(); // PAS de chemin relatif ici, car le .env est dans le même dossier
+// db.js
+import mongoose from "mongoose";
+import dotenv from "dotenv";
 
-const uri = process.env.MONGODB_URI;
+dotenv.config();
 
-console.log("URI lue depuis .env =", uri); // <-- pour tester
-
-async function connectDB() {
+const connectDB = async () => {
   try {
-    await mongoose.connect(uri, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
-    console.log("Connecté à MongoDB Atlas");
+    console.log("🧩 Connecting to MongoDB...");
+    await mongoose.connect(process.env.MONGODB_URI);
+    console.log("✅ Connected to MongoDB Atlas");
   } catch (err) {
-    console.error("Erreur de connexion MongoDB:", err.message);
+    console.error("❌ MongoDB connection error:", err.message);
     process.exit(1);
   }
-}
+};
 
-module.exports = connectDB;
+export default connectDB;

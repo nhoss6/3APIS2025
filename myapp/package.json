@@ -8,6 +8,24 @@
     "test": "mocha --timeout 5000",
     "coverage": "c8 --reporter=text --reporter=html npm test"
   },
+  "c8": {
+    "exclude": [
+      "test/**",
+      "bin/**",
+      "db.js",
+      "app.js",
+      "node_modules/**"
+    ],
+    "include": [
+      "models/**",
+      "routes/**",
+      "utils/**"
+    ],
+    "reporter": [
+      "text",
+      "html"
+    ]
+  },
   "dependencies": {
     "cookie-parser": "~1.4.4",
     "debug": "~2.6.9",
@@ -15,6 +33,7 @@
     "express": "~4.16.1",
     "http-errors": "~1.6.3",
     "jade": "~1.11.0",
+    "joi": "^18.0.1",
     "mongoose": "^8.19.1",
     "morgan": "~1.9.1"
   },
@@ -23,6 +42,7 @@
     "chai": "^6.2.0",
     "mocha": "^11.7.4",
     "nodemon": "^3.1.10",
-    "sinon": "^21.0.0"
+    "sinon": "^21.0.0",
+    "supertest": "^7.1.4"
   }
 }

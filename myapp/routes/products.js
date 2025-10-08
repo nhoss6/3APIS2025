@@ -1,61 +1,65 @@
-const express = require("express");
-const router = express.Router();
-const Product = require("../models/Product");
+import express from "express";
+import Product from "../models/Product.js";
+import { productSchema, productUpdateSchema } from "../validators/productValidator.js";
 
-// CREATION (POST)
+const router = express.Router();
+
+//   CREATE
 router.post("/", async (req, res) => {
   try {
-    const newProduct = await Product.create(req.body);
-    res.status(201).json(newProduct);
+    const { error, value } = productSchema.validate(req.body);
+    if (error) return res.status(400).json({ message: error.details[0].message });
+
+    const product = await Product.create(value);
+    res.status(201).json(product);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(500).json({ message: "Server error", error: err.message });
   }
 });
 
-// LIRE TOUS (GET)
-router.get("/", async (req, res) => {
-  try {
-    const products = await Product.find();
-    res.json(products);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+//   READ all
+router.get("/", async (_req, res) => {
+  const products = await Product.find();
+  res.json(products);
 });
 
-// LIRE UN (GET par ID)
+//   READ by ID
 router.get("/:id", async (req, res) => {
   try {
     const product = await Product.findById(req.params.id);
-    if (!product) return res.status(404).json({ error: "Product not found" });
+    if (!product) return res.status(404).json({ message: "Product not found" });
     res.json(product);
-  } catch {
-    res.status(400).json({ error: "Invalid ID" });
+  } catch (err) {
+    res.status(400).json({ message: "Invalid ID format" });
   }
 });
 
-// MISE A JOUR (PATCH)
+//   UPDATE (PATCH)
 router.patch("/:id", async (req, res) => {
   try {
-    const updated = await Product.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-      runValidators: true,
-    });
-    if (!updated) return res.status(404).json({ error: "Product not found" });
-    res.json(updated);
+    // Validation avec le schéma de mise à jour (champs optionnels)
+    const { error, value } = productUpdateSchema.validate(req.body);
+    if (error) return res.status(400).json({ message: error.details[0].message });
+
+    // Mise à jour dans MongoDB
+    const product = await Product.findByIdAndUpdate(req.params.id, value, { new: true });
+    if (!product) return res.status(404).json({ message: "Product not found" });
+
+    res.json(product);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(500).json({ message: "Server error", error: err.message });
   }
 });
 
-// SUPPRIMER (DELETE)
+//   DELETE
 router.delete("/:id", async (req, res) => {
   try {
-    const deleted = await Product.findByIdAndDelete(req.params.id);
-    if (!deleted) return res.status(404).json({ error: "Product not found" });
-    res.json({ message: "Product deleted successfully" });
-  } catch {
-    res.status(400).json({ error: "Invalid ID" });
+    const product = await Product.findByIdAndDelete(req.params.id);
+    if (!product) return res.status(404).json({ message: "Product not found" });
+    res.json({ message: `Product ${product.name} deleted successfully` });
+  } catch (err) {
+    res.status(400).json({ message: "Invalid ID format" });
   }
 });
 
-module.exports = router;
+export default router;
