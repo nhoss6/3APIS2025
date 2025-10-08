@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chat privé</title>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <style>
+    body {
+      font-family: "Segoe UI", sans-serif;
+      background: #f7f7f7;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    header {
+      background: #0078ff;
+      color: white;
+      padding: 12px 20px;
+      text-align: center;
+      font-weight: bold;
+    }
+    #chat {
+      flex: 1;
+      padding: 20px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .message {
+      max-width: 70%;
+      padding: 10px 14px;
+      border-radius: 12px;
+      line-height: 1.4;
+      font-size: 15px;
+      position: relative;
+    }
+    .mine {
+      background: #0078ff;
+      color: white;
+      align-self: flex-end;
+      border-bottom-right-radius: 0;
+    }
+    .other {
+      background: #eaeaea;
+      align-self: flex-start;
+      border-bottom-left-radius: 0;
+    }
+    .timestamp {
+      font-size: 11px;
+      opacity: 0.6;
+      margin-top: 4px;
+      text-align: right;
+    }
+    .system {
+      text-align: center;
+      font-size: 13px;
+      color: #666;
+      margin: 10px 0;
+    }
+    footer {
+      display: flex;
+      padding: 10px;
+      background: white;
+      border-top: 1px solid #ddd;
+    }
+    input, button {
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      padding: 10px;
+      font-size: 15px;
+    }
+    #message {
+      flex: 1;
+      margin-right: 10px;
+    }
+    #join-section {
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-width: 400px;
+      margin: 100px auto;
+    }
+    #join-section input {
+      padding: 10px;
+    }
+    #chat-container {
+      display: none;
+      flex: 1;
+      flex-direction: column;
+    }
+  </style>
+</head>
+<body>
+  <header>💬 Chat privé</header>
+
+  <div id="join-section">
+    <input id="username" placeholder="Entrez votre nom d'utilisateur" />
+    <input id="receiver" placeholder="Nom de votre interlocuteur" />
+    <button id="join-btn">Rejoindre le chat</button>
+  </div>
+
+  <div id="chat-container">
+    <div id="chat"></div>
+    <footer>
+      <input id="message" placeholder="Écrire un message..." autocomplete="off" />
+      <button id="send">Envoyer</button>
+    </footer>
+  </div>
+
+  <script>
+    const socket = io("http://localhost:3000");
+    let username = "";
+    let receiver = "";
+
+    // Génère un JWT de démo côté client
+    async function getToken(username) {
+      const res = await fetch("/auth/demo-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username })
+      });
+      const data = await res.json();
+      return data.token;
+    }
+
+    // Quand l’utilisateur clique sur “Rejoindre”
+    document.getElementById("join-btn").addEventListener("click", async () => {
+      username = document.getElementById("username").value.trim();
+      receiver = document.getElementById("receiver").value.trim();
+      if (!username || !receiver) return alert("Remplissez les deux champs");
+
+      const token = await getToken(username);
+      socket.emit("authenticate", token);
+
+      socket.on("authenticated", () => {
+        document.getElementById("join-section").style.display = "none";
+        document.getElementById("chat-container").style.display = "flex";
+        socket.emit("joinPrivateChat", { receiverId: receiver });
+      });
+    });
+
+    // Envoi de message
+    document.getElementById("send").addEventListener("click", sendMessage);
+    document.getElementById("message").addEventListener("keypress", e => {
+      if (e.key === "Enter") sendMessage();
+    });
+
+    function sendMessage() {
+      const input = document.getElementById("message");
+      const text = input.value.trim();
+      if (!text) return;
+      socket.emit("privateMessage", { receiverId: receiver, content: text });
+      addMessage(username, text, true);
+      input.value = "";
+    }
+
+    // Réception de message
+socket.on("newPrivateMessage", ({ senderId, content, time }) => {
+  // Si le message vient de soi, on ne le réaffiche pas
+  if (senderId === username) return;
+  addMessage(senderId, content, false, time);
+});
+    // Affichage message système (join/leave)
+    socket.on("systemMessage", (msg) => {
+      const div = document.createElement("div");
+      div.className = "system";
+      div.textContent = msg;
+      document.getElementById("chat").appendChild(div);
+      scrollBottom();
+    });
+
+    function addMessage(sender, content, mine, time = new Date().toLocaleTimeString()) {
+      const div = document.createElement("div");
+      div.className = "message " + (mine ? "mine" : "other");
+      div.innerHTML = `
+        <strong>${sender}</strong><br>${content}
+        <div class="timestamp">${time}</div>
+      `;
+      document.getElementById("chat").appendChild(div);
+      scrollBottom();
+    }
+
+    function scrollBottom() {
+      const chat = document.getElementById("chat");
+      chat.scrollTop = chat.scrollHeight;
+    }
+  </script>
+</body>
+</html>

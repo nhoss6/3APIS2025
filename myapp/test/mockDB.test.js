@@ -3,11 +3,11 @@ import Product from "../models/Product.js";
 import assert from "assert";
 
 describe("MongoDB test", function() {
-  before(async function() {
+beforeAll(async () => {
     await mongoose.connect("mongodb://127.0.0.1:27017/testDB");
   });
 
-  after(async function() {
+afterAll(async function () {
     await mongoose.connection.close();
   });
 
